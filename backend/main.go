@@ -1,10 +1,12 @@
 package main
 
 import (
-	"e-commerce/config"
 	"os"
 
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+
+	"e-commerce/pkg/handlers"
 )
 
 func main() {
@@ -14,10 +16,23 @@ func main() {
 	}
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = ":4000"
+		port = ":8080"
 	} else {
 		port = ":" + port
 	}
 
-	config.ConnectDatabase()
+	r := gin.Default()
+
+	api := r.Group("/api/v1")
+	{
+		api.GET("/", func(ctx *gin.Context) {
+			ctx.JSON(200, gin.H{
+				"message": "Hello, World!",
+			})
+
+		})
+		api.GET("/products", handlers.GetProducts)
+	}
+
+	r.Run(port)
 }

@@ -1,4 +1,4 @@
-package config
+package db
 
 import (
 	"log"
@@ -10,9 +10,7 @@ import (
 	"gorm.io/driver/postgres"
 )
 
-var DBConn *gorm.DB
-
-func ConnectDatabase() {
+func Connect() *gorm.DB {
 	dbURL := os.Getenv("DB_URL")
 	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
 
@@ -25,14 +23,18 @@ func ConnectDatabase() {
 	if err != nil {
 		log.Panic("Failed to migrate database: ", err)
 	}
-	DBConn = db
+
+	return db
 }
 
-// GetDB is a function that returns the current database connection.
-// It does not take any parameters.
-//
-// Returns:
-// *gorm.DB: The current database connection.
-func GetDB() *gorm.DB {
-	return DBConn
+func Close(db *gorm.DB) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Panic("Failed to get database connection: ", err)
+	}
+
+	err = sqlDB.Close()
+	if err != nil {
+		log.Panic("Failed to close database connection: ", err)
+	}
 }
