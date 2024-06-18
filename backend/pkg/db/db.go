@@ -12,7 +12,9 @@ import (
 
 func Connect() *gorm.DB {
 	dbURL := os.Getenv("DB_URL")
-	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{
+		PrepareStmt: true,
+	})
 
 	if err != nil {
 		log.Panic("Failed to connect to database: ", err)
@@ -24,6 +26,7 @@ func Connect() *gorm.DB {
 		log.Panic("Failed to migrate database: ", err)
 	}
 
+	// return db
 	return db
 }
 
