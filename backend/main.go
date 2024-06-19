@@ -3,11 +3,11 @@ package main
 import (
 	"os"
 
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+	"e-commerce/config"
+	"e-commerce/db"
+	"e-commerce/routes"
 
-	"e-commerce/pkg/config"
-	"e-commerce/pkg/handlers"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -20,33 +20,8 @@ func main() {
 		port = "8080"
 	}
 
-	r := gin.Default()
+	db := db.Connect()
 	client := config.ConnectRedis()
-	api := r.Group("/api/v1")
-	{
-		api.GET("/", func(ctx *gin.Context) {
-			ctx.JSON(200, gin.H{
-				"message": "Hello, World!",
-			})
-
-		})
-		api.GET("/products", func(ctx *gin.Context) {
-			handlers.GetProducts(ctx, client)
-		})
-		api.GET("/products/:id", func(ctx *gin.Context) {
-			handlers.GetProduct(ctx, client)
-		})
-		api.POST("/products", func(ctx *gin.Context) {
-			handlers.AddProduct(ctx, client)
-		})
-		api.POST("/products/:id", func(ctx *gin.Context) {
-			handlers.UpdateProduct(ctx, client)
-		})
-		api.DELETE("/products/:id", func(ctx *gin.Context) {
-			handlers.DeleteProduct(ctx, client)
-		})
-
-	}
-
+	r := routes.SetupRouter(db, client)
 	r.Run(":" + port)
 }

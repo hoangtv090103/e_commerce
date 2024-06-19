@@ -1,4 +1,4 @@
-package handlers
+package controllers
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"e-commerce/models"
-	"e-commerce/pkg/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
@@ -19,7 +18,7 @@ import (
 // HSet is used to store a hash map in Redis
 // Set is used to store a string in Redis
 
-func GetProducts(c *gin.Context, r *redis.Client) {
+func GetProducts(db *gorm.DB,c *gin.Context, r *redis.Client) {
 	cachedProducts, err := r.Get("products:all").Result()
 	if err == redis.Nil {
 		fmt.Println("Cache miss, querying database")
@@ -39,10 +38,17 @@ func GetProducts(c *gin.Context, r *redis.Client) {
 		return
 	}
 
-	DB := db.Connect()
-	defer db.Close(DB)
 	var products []models.Product
-	DB.Find(&products)
+	err = db.Model(&models.Product{}).Preload("Categories").Find(&products).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "No products found"})
+			return
+		}
+		fmt.Println("Error querying database:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying database"})
+		return
+	}
 
 	productsJSON, err := json.Marshal(products)
 	if err != nil {
@@ -65,10 +71,10 @@ func GetProducts(c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, products)
 }
 
-func GetProduct(c *gin.Context, r *redis.Client) {
+func GetProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	productId := c.Param("id")
 
-	cachedProduct, err := r.Get("products:" + productId).Result()
+	cachedProduct, err := r.HGet("products:"+productId, productId).Result()
 	if err == redis.Nil {
 		fmt.Println("Cache miss, querying database")
 	} else if err != nil {
@@ -86,10 +92,8 @@ func GetProduct(c *gin.Context, r *redis.Client) {
 		return
 	}
 
-	DB := db.Connect()
-	defer db.Close(DB)
 	var product models.Product
-	if err := DB.First(&product, productId).Error; err != nil {
+	if err := db.Model(&models.Product{}).Preload("Categories").First(&product, productId).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		} else {
@@ -104,18 +108,21 @@ func GetProduct(c *gin.Context, r *redis.Client) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
 		return
 	}
-	r.Set("products:"+productId, productJSON, time.Hour)
+	r.HSet("products:"+productId, string(productJSON), time.Hour)
 
 	c.JSON(http.StatusOK, product)
 }
 
-func AddProduct(c *gin.Context, r *redis.Client) {
-	DB := db.Connect()
-	defer db.Close(DB)
+func AddProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	products := []models.Product{}
 
 	c.BindJSON(&products)
-	DB.Create(&products)
+	if len(products) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No products provided"})
+		return
+	}
+	
+	db.Model(&models.Product{}).Create(&products)
 
 	for _, product := range products {
 		productJSON, err := json.Marshal(product)
@@ -150,14 +157,14 @@ func AddProduct(c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, products)
 }
 
-func UpdateProduct(c *gin.Context, r *redis.Client) {
-	DB := db.Connect()
-	defer db.Close(DB)
+func UpdateProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	product := models.Product{}
 	id := c.Param("id")
-	DB.First(&product, id)
+	db.Model(&models.Product{}).First(&product, id)
+	
 	c.BindJSON(&product)
-	DB.Save(&product)
+	
+	db.Save(&product)
 
 	productJSON, err := json.Marshal(product)
 	if err != nil {
@@ -170,12 +177,10 @@ func UpdateProduct(c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, product)
 }
 
-func DeleteProduct(c *gin.Context, r *redis.Client) {
-	DB := db.Connect()
-	defer db.Close(DB)
+func DeleteProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	product := models.Product{}
 	id := c.Param("id")
-	DB.Delete(&product, id)
+	db.Model(&models.Product{}).First(&product, id)
 
 	r.HDel("products", id)
 

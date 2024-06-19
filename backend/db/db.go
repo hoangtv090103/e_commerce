@@ -20,13 +20,11 @@ func Connect() *gorm.DB {
 		log.Panic("Failed to connect to database: ", err)
 	}
 
-	err = db.AutoMigrate(&models.User{}, &models.Product{}, &models.Category{}, &models.ProductCategory{}, &models.Order{}, &models.OrderItem{}, &models.Cart{}, &models.CartItem{}, &models.Payment{})
+	err = db.AutoMigrate(&models.User{}, &models.Product{}, &models.Category{}, &models.Order{}, &models.OrderLine{}, &models.Cart{}, &models.CartItem{}, &models.Payment{})
 
 	if err != nil {
 		log.Panic("Failed to migrate database: ", err)
 	}
-
-	// return db
 	return db
 }
 
