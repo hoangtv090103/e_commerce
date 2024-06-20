@@ -16,20 +16,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// HSet vs Set
-// HSet is used to store a hash map in Redis
-// Set is used to store a string in Redis
-
 func GetProducts(c *gin.Context, r *redis.Client) {
 	cachedProducts, err := r.Get("products:all").Result()
-	if err == redis.Nil {
-		fmt.Println("Cache miss, querying database")
-	} else if err != nil {
+	if err != nil && err != redis.Nil {
 		fmt.Println("Error retrieving from Redis:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving data"})
 		return
-	} else {
-		fmt.Println("Returning cached products")
+	}
+
+	if cachedProducts != "" {
 		var products []models.Product
 		if err := json.Unmarshal([]byte(cachedProducts), &products); err != nil {
 			fmt.Println("Error unmarshaling cached products:", err)
@@ -41,14 +36,13 @@ func GetProducts(c *gin.Context, r *redis.Client) {
 	}
 
 	var products []models.Product
-	err = db.DB.Model(&models.Product{}).Preload("Categories").Find(&products).Error
-	if err != nil {
+	if err := db.DB.Preload("Categories").Find(&products).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "No products found"})
-			return
+		} else {
+			fmt.Println("Error querying database:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying database"})
 		}
-		fmt.Println("Error querying database:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error querying database"})
 		return
 	}
 
@@ -67,7 +61,6 @@ func GetProducts(c *gin.Context, r *redis.Client) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
 			return
 		}
-		// Convert the product ID to a string and store the product in Redis
 		r.Set("products:"+strconv.Itoa(int(product.ID)), string(productJSON), time.Hour)
 	}
 
@@ -76,16 +69,14 @@ func GetProducts(c *gin.Context, r *redis.Client) {
 
 func GetProduct(c *gin.Context, r *redis.Client) {
 	productId := c.Param("id")
-	fmt.Println("Product ID:", productId)
-
 	cachedProduct, err := r.Get("products:" + productId).Result()
-	if err == redis.Nil {
-		fmt.Println("Cache miss, querying database")
-	} else if err != nil {
+	if err != nil && err != redis.Nil {
 		fmt.Println("Error retrieving from Redis:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving data"})
 		return
-	} else {
+	}
+
+	if cachedProduct != "" {
 		var product models.Product
 		if err := json.Unmarshal([]byte(cachedProduct), &product); err != nil {
 			fmt.Println("Error unmarshaling cached product:", err)
@@ -97,7 +88,7 @@ func GetProduct(c *gin.Context, r *redis.Client) {
 	}
 
 	var product models.Product
-	if err := db.DB.Model(&models.Product{}).Preload("Categories").First(&product, productId).Error; err != nil {
+	if err := db.DB.Preload("Categories").First(&product, productId).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		} else {
@@ -119,13 +110,17 @@ func GetProduct(c *gin.Context, r *redis.Client) {
 
 func AddProduct(c *gin.Context, r *redis.Client) {
 	product := models.Product{}
-	
 	if err := c.ShouldBindJSON(&product); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	db.DB.Model(&models.Product{}).Create(&product)
+	tx := db.DB.Begin()
+	if err := db.DB.Create(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating product"})
+		tx.Rollback()
+		return
+	}
 
 	productJSON, err := json.Marshal(product)
 	if err != nil {
@@ -134,43 +129,39 @@ func AddProduct(c *gin.Context, r *redis.Client) {
 		return
 	}
 	r.Set("products:"+strconv.Itoa(int(product.ID)), string(productJSON), time.Hour)
-	
-	// Update products:all cache
+
 	cachedProducts, err := r.Get("products:all").Result()
-	if err == redis.Nil {
-		log.Println("Cache miss, querying database")
-	} else if err != nil {
+	if err != nil && err != redis.Nil {
 		log.Println("Error retrieving from Redis:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving data"})
 		return
-	} else {
-		var products []models.Product
+	}
+
+	var products []models.Product
+	if cachedProducts != "" {
 		if err := json.Unmarshal([]byte(cachedProducts), &products); err != nil {
 			log.Println("Error unmarshaling cached products:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error unmarshaling data"})
 			return
 		}
-		products = append(products, product)
-		productsJSON, err := json.Marshal(products)
-		if err != nil {
-			log.Println("Error marshaling products:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
-			return
-		}
-		r.Set("products:all", productsJSON, time.Hour)
 	}
-	
+	products = append(products, product)
+	productsJSON, err := json.Marshal(products)
+	if err != nil {
+		log.Println("Error marshaling products:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
+		return
+	}
+	r.Set("products:all", productsJSON, time.Hour)
+
 	c.JSON(http.StatusOK, product)
-	
 }
 
 func UpdateProduct(c *gin.Context, r *redis.Client) {
 	product := models.Product{}
 	id := c.Param("id")
-	db.DB.Model(&models.Product{}).First(&product, id)
-
+	db.DB.First(&product, id)
 	c.BindJSON(&product)
-
 	db.DB.Save(&product)
 
 	productJSON, err := json.Marshal(product)
@@ -186,19 +177,18 @@ func UpdateProduct(c *gin.Context, r *redis.Client) {
 
 func DeleteProduct(c *gin.Context, r *redis.Client) {
 	id := c.Param("id")
-	var product models.Product
 	r.Del("products:" + id)
-	if err := db.DB.Model(&models.Product{}).First(&product, id).Error; err != nil {
+	var product models.Product
+	if err := db.DB.First(&product, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-			return
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-			return
 		}
+		return
 	}
 
-	db.DB.Model(&models.Product{}).Delete(&models.Product{}, id)
+	db.DB.Delete(&models.Product{}, id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Product deleted successfully",

@@ -14,5 +14,6 @@ func SetupRouter(client *redis.Client) *gin.Engine {
 	apiRouter := r.Group("/api/v1")
 	ProductRouter(apiRouter, client)
 	AuthRouter(apiRouter, client)
+	UserRouter(apiRouter, client)
 	return r
 }
