@@ -10,32 +10,24 @@ import (
 	"gorm.io/driver/postgres"
 )
 
-func Connect() *gorm.DB {
-	dbURL := os.Getenv("DB_URL")
-	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{
-		PrepareStmt: true,
-	})
+var DB *gorm.DB
 
-	if err != nil {
-		log.Panic("Failed to connect to database: ", err)
-	}
+func InitDB() {
+ dbURL := os.Getenv("DB_URL")
+ var err error
+ DB, err = gorm.Open(postgres.Open(dbURL), &gorm.Config{
+  PrepareStmt: true,
+ })
 
-	err = db.AutoMigrate(&models.User{}, &models.Product{}, &models.Category{}, &models.Order{}, &models.OrderLine{}, &models.Cart{}, &models.CartItem{}, &models.Payment{})
+ if err != nil {
+  log.Panic("Failed to connect to database: ", err)
+ }
 
-	if err != nil {
-		log.Panic("Failed to migrate database: ", err)
-	}
-	return db
-}
+ err = DB.Debug().AutoMigrate(&models.User{}, &models.Product{}, &models.Category{}, &models.Order{}, &models.OrderLine{}, &models.Cart{}, &models.CartItem{}, &models.Payment{})
 
-func Close(db *gorm.DB) {
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Panic("Failed to get database connection: ", err)
-	}
+ if err != nil {
+  log.Panic("Failed to migrate database: ", err)
+ }
 
-	err = sqlDB.Close()
-	if err != nil {
-		log.Panic("Failed to close database connection: ", err)
-	}
+  log.Println("Connected to database")
 }

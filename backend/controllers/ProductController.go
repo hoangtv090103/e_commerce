@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"e-commerce/db"
 	"e-commerce/models"
 
 	"github.com/gin-gonic/gin"
@@ -19,7 +20,7 @@ import (
 // HSet is used to store a hash map in Redis
 // Set is used to store a string in Redis
 
-func GetProducts(db *gorm.DB, c *gin.Context, r *redis.Client) {
+func GetProducts(c *gin.Context, r *redis.Client) {
 	cachedProducts, err := r.Get("products:all").Result()
 	if err == redis.Nil {
 		fmt.Println("Cache miss, querying database")
@@ -40,7 +41,7 @@ func GetProducts(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	}
 
 	var products []models.Product
-	err = db.Model(&models.Product{}).Preload("Categories").Find(&products).Error
+	err = db.DB.Model(&models.Product{}).Preload("Categories").Find(&products).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "No products found"})
@@ -73,7 +74,7 @@ func GetProducts(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, products)
 }
 
-func GetProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
+func GetProduct(c *gin.Context, r *redis.Client) {
 	productId := c.Param("id")
 	fmt.Println("Product ID:", productId)
 
@@ -96,7 +97,7 @@ func GetProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	}
 
 	var product models.Product
-	if err := db.Model(&models.Product{}).Preload("Categories").First(&product, productId).Error; err != nil {
+	if err := db.DB.Model(&models.Product{}).Preload("Categories").First(&product, productId).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		} else {
@@ -116,58 +117,61 @@ func GetProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, product)
 }
 
-func AddProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
-	products := []models.Product{}
-
-	c.BindJSON(&products)
-	if len(products) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No products provided"})
+func AddProduct(c *gin.Context, r *redis.Client) {
+	product := models.Product{}
+	
+	if err := c.ShouldBindJSON(&product); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	db.Model(&models.Product{}).Create(&products)
+	db.DB.Model(&models.Product{}).Create(&product)
 
-	for _, product := range products {
-		productJSON, err := json.Marshal(product)
+	productJSON, err := json.Marshal(product)
+	if err != nil {
+		log.Println("Error marshaling product:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
+		return
+	}
+	r.Set("products:"+strconv.Itoa(int(product.ID)), string(productJSON), time.Hour)
+	
+	// Update products:all cache
+	cachedProducts, err := r.Get("products:all").Result()
+	if err == redis.Nil {
+		log.Println("Cache miss, querying database")
+	} else if err != nil {
+		log.Println("Error retrieving from Redis:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error retrieving data"})
+		return
+	} else {
+		var products []models.Product
+		if err := json.Unmarshal([]byte(cachedProducts), &products); err != nil {
+			log.Println("Error unmarshaling cached products:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error unmarshaling data"})
+			return
+		}
+		products = append(products, product)
+		productsJSON, err := json.Marshal(products)
 		if err != nil {
-			fmt.Println("Error marshaling product:", err)
+			log.Println("Error marshaling products:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error marshaling data"})
 			return
 		}
-		r.Set("products:"+strconv.Itoa(int(product.ID)), string(productJSON), time.Hour)
-
-		// update redis products:all
-		cachedProducts, err := r.Get("products:all").Result()
-		if err == redis.Nil {
-			fmt.Println("Cache miss, querying database")
-		} else if err != nil {
-			log.Println("Error: ", err)
-		} else {
-			var products []models.Product
-			if err := json.Unmarshal([]byte(cachedProducts), &products); err != nil {
-				log.Println("Error: ", err)
-			}
-			products = append(products, product)
-			productsJSON, err := json.Marshal(products)
-			if err != nil {
-				log.Println("Error: ", err)
-			}
-			r.Set("products:all", productsJSON, time.Hour)
-
-		}
+		r.Set("products:all", productsJSON, time.Hour)
 	}
-
-	c.JSON(http.StatusOK, products)
+	
+	c.JSON(http.StatusOK, product)
+	
 }
 
-func UpdateProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
+func UpdateProduct(c *gin.Context, r *redis.Client) {
 	product := models.Product{}
 	id := c.Param("id")
-	db.Model(&models.Product{}).First(&product, id)
+	db.DB.Model(&models.Product{}).First(&product, id)
 
 	c.BindJSON(&product)
 
-	db.Save(&product)
+	db.DB.Save(&product)
 
 	productJSON, err := json.Marshal(product)
 	if err != nil {
@@ -180,11 +184,11 @@ func UpdateProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	c.JSON(http.StatusOK, product)
 }
 
-func DeleteProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
+func DeleteProduct(c *gin.Context, r *redis.Client) {
 	id := c.Param("id")
 	var product models.Product
 	r.Del("products:" + id)
-	if err := db.Model(&models.Product{}).First(&product, id).Error; err != nil {
+	if err := db.DB.Model(&models.Product{}).First(&product, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
@@ -194,7 +198,7 @@ func DeleteProduct(db *gorm.DB, c *gin.Context, r *redis.Client) {
 		}
 	}
 
-	db.Model(&models.Product{}).Delete(&models.Product{}, id)
+	db.DB.Model(&models.Product{}).Delete(&models.Product{}, id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Product deleted successfully",

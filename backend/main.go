@@ -20,8 +20,9 @@ func main() {
 		port = "8080"
 	}
 
-	db := db.Connect()
+	db.InitDB()
 	client := config.ConnectRedis()
-	r := routes.SetupRouter(db, client)
+	r := routes.SetupRouter(client)
+	
 	r.Run(":" + port)
 }

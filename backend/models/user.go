@@ -11,6 +11,6 @@ type User struct {
 	LastName  string    `json:"last_name"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Order    []Order   `json:"orders"`
-	Cart    Cart      `json:"cart"`
+	Orders    []Order   `json:"-"`
+	Cart      Cart      `json:"cart"`
 }
