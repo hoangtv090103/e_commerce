@@ -115,6 +115,11 @@ func AddProduct(c *gin.Context, r *redis.Client) {
 		return
 	}
 
+	if product.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Name is required"})
+		return
+	}
+
 	tx := db.DB.Begin()
 	if err := db.DB.Create(&product).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating product"})
