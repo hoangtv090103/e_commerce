@@ -1,8 +1,8 @@
 package handlers
 
 import (
+	"e-commerce/db"
 	"e-commerce/models"
-	"e-commerce/pkg/db"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -10,9 +10,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis"
+	"gorm.io/gorm"
 )
 
-func GetOrders(c *gin.Context, r *redis.Client) {
+func GetOrders(db *gorm.DB, c *gin.Context, r *redis.Client) {
 	cachedOrders, err := r.Get("orders:all").Result()
 	var orders []models.Order
 	if err == redis.Nil {
@@ -29,9 +30,7 @@ func GetOrders(c *gin.Context, r *redis.Client) {
 	    return
   	}
 
-	DB := db.Connect()
-	defer db.Close(DB)
-	DB.Find(&orders)
+	db.Model(&models.Order{}).Find(&orders)
 
 	ordersJson, err := json.Marshal(orders)
 
@@ -86,4 +85,3 @@ func GetOrder(c *gin.Context, r *redis.Client) {
 	r.HSet("orders:" + id, string(orderJson), time.Hour)
 	c.JSON(http.StatusOK, order)
 }
-

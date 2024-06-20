@@ -32,5 +32,39 @@ func SetupRouter(db *gorm.DB, client *redis.Client) *gin.Engine {
 			controllers.DeleteProduct(db, ctx, client)
 		})
 	}
+	
+	userRouter := r.Group("/api/v1/users")
+	{
+		userRouter.GET("/", func(ctx *gin.Context) {
+			controllers.GetUsers(db, ctx, client)
+		})
+		userRouter.GET("/:id", func(ctx *gin.Context) {
+			controllers.GetUser(db, ctx, client)
+		})
+	}
+	
+	orderRouter := r.Group("/api/v1/orders")
+	{
+		orderRouter.GET("/", func(ctx *gin.Context) {
+			controllers.GetOrders(db, ctx, client)
+		})
+		
+		orderRouter.GET("/:id", func(ctx *gin.Context) {
+			controllers.GetOrder(db, ctx, client)
+		})
+		
+		orderRouter.POST("/", func(ctx *gin.Context) {
+			controllers.AddOrder(db, ctx, client)
+		})
+		
+		orderRouter.POST("/:id", func(ctx *gin.Context) {
+			controllers.UpdateOrder(db, ctx, client)
+		})
+		
+		orderRouter.DELETE("/:id", func(ctx *gin.Context) {
+			controllers.DeleteOrder(db, ctx, client)
+		})
+	}
+		
 	return r
 }
